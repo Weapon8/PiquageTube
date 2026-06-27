@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37328.6 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PiquageTube", "PiquageTube.csproj", "{EFE03C02-F258-2A00-28FA-F3B8A4802D9C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EFE03C02-F258-2A00-28FA-F3B8A4802D9C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EFE03C02-F258-2A00-28FA-F3B8A4802D9C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EFE03C02-F258-2A00-28FA-F3B8A4802D9C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EFE03C02-F258-2A00-28FA-F3B8A4802D9C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {6D0E99F6-5FA0-46F3-B3B7-D0BE5DB50AA4}
+	EndGlobalSection
+EndGlobal

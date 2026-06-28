@@ -22,15 +22,16 @@ namespace PiquageTube
         static readonly Color CGrey   = Color.FromArgb(70, 78, 90);   // bordures / séparateurs
         static readonly Color CRed    = Color.FromArgb(150, 70, 70);  // suppression
 
-        NumericUpDown nDRun, nDBr, nDTop, nAngle, nDeport, nEp, nRec, nL, nSeg;
-        CheckBox chkRun, chkCone;
+        NumericUpDown nDRun, nDRunHaut, nLRun, nDBr, nDTop, nAngle, nDeport, nEp, nRec, nL, nSeg;
+        CheckBox chkRun, chkCone, chkRunCone;
         ComboBox cbProfil;
         Button btnCalc, btnDxf, btnLoad, btnSave, btnDel;
         Button btnVBr, btnVTr, btnV3D;
-        Label lblInfo, lblDTop;
+        Label lblInfo, lblDTop, lblDRunHaut, lblLRun;
         PreviewPanel pBranche, pTrou, p3D;
         PiquageResult _res;
         ProfilStore _store;
+        bool _suspend;   // gèle le recalcul temps réel pendant un chargement de profil
 
         public MainForm()
         {
@@ -52,9 +53,13 @@ namespace PiquageTube
         }
 
         // -------- styling helpers --------
-        NumericUpDown Num(double v, double min, double max, double inc, int dec) => new NumericUpDown
-        { Minimum = (decimal)min, Maximum = (decimal)max, Increment = (decimal)inc, DecimalPlaces = dec, Value = (decimal)v,
-          BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9) };
+        NumericUpDown Num(double v, double min, double max, double inc, int dec)
+        {
+            var n = new NumericUpDown { Minimum = (decimal)min, Maximum = (decimal)max, Increment = (decimal)inc, DecimalPlaces = dec, Value = (decimal)v,
+                BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9) };
+            n.ValueChanged += (s, e) => Calc();   // temps réel
+            return n;
+        }
         Button Btn(string t, int w, Color? bg = null, Color? fg = null)
         {
             var b = new Button { Text = t, Width = w, Height = 30, BackColor = bg ?? CBtn, ForeColor = fg ?? CText,
@@ -81,7 +86,7 @@ namespace PiquageTube
             { var l = new Label { Text = t, Left = 0, Top = top, Width = 300, AutoSize = false, Height = 20, ForeColor = col, Font = new Font("Segoe UI", sz, st) }; panel.Controls.Add(l); return l; }
             void Row(string lbl, Control c) { var l = Lab(lbl, y + 4, CText); l.Width = 150; c.Left = 160; c.Top = y; c.Width = 145; panel.Controls.Add(c); y += 33; }
 
-            Lab("PIQUAGE CYLINDRE / CÔNE", y, CAccent, 10.5f, FontStyle.Bold); y += 30;
+            Lab("PIQUAGE / CULOTTE", y, CAccent, 10.5f, FontStyle.Bold); y += 30;
 
             // --- profils JSON ---
             Lab("Profil standard", y, CAccent, 9, FontStyle.Bold); y += 22;
@@ -97,22 +102,37 @@ namespace PiquageTube
             y += 40;
             var sep = new Panel { Left = 0, Top = y, Width = 305, Height = 1, BackColor = CGrey }; panel.Controls.Add(sep); y += 12;
 
-            // --- paramètres ---
-            nDRun = Num(200, 5, 5000, 1, 2); Row("Ø tube droit (run)", nDRun);
-            nDBr = Num(100, 5, 5000, 1, 2); Row("Ø branche (base)", nDBr);
-            chkCone = new CheckBox { Text = "Branche conique (descente)", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
+            // === TUBE RÉCEPTEUR (principal) ===
+            Lab("TUBE RÉCEPTEUR", y, CAccent, 9, FontStyle.Bold); y += 22;
+            nDRun = Num(200, 5, 5000, 1, 2); Row("Ø récepteur (bas)", nDRun);
+            chkRunCone = new CheckBox { Text = "Récepteur conique (Ø bas ≠ haut)", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
+            chkRunCone.CheckedChanged += (s, e) => { UpdateConeState(); Calc(); };
+            panel.Controls.Add(chkRunCone); y += 28;
+            nDRunHaut = Num(150, 5, 5000, 1, 2); lblDRunHaut = Lab("Ø récepteur (haut)", y + 4, CText); lblDRunHaut.Width = 150;
+            nDRunHaut.Left = 160; nDRunHaut.Top = y; nDRunHaut.Width = 145; panel.Controls.Add(nDRunHaut); y += 33;
+            nLRun = Num(400, 10, 20000, 10, 0); lblLRun = Lab("Long. récepteur", y + 4, CText); lblLRun.Width = 150;
+            nLRun.Left = 160; nLRun.Top = y; nLRun.Width = 145; panel.Controls.Add(nLRun); y += 33;
+            var sep2 = new Panel { Left = 0, Top = y, Width = 305, Height = 1, BackColor = CGrey }; panel.Controls.Add(sep2); y += 12;
+
+            // === TUBE AJOUTÉ (branche / manchon) ===
+            Lab("TUBE AJOUTÉ", y, CAccent, 9, FontStyle.Bold); y += 22;
+            nDBr = Num(100, 5, 5000, 1, 2); Row("Ø ajouté (base)", nDBr);
+            chkCone = new CheckBox { Text = "Tube ajouté conique (réduction)", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
             chkCone.CheckedChanged += (s, e) => { UpdateConeState(); Calc(); };
             panel.Controls.Add(chkCone); y += 28;
-            nDTop = Num(95, 5, 5000, 1, 2); lblDTop = Lab("Ø branche (haut)", y + 4, CText); lblDTop.Width = 150;
+            nDTop = Num(95, 5, 5000, 1, 2); lblDTop = Lab("Ø ajouté (haut)", y + 4, CText); lblDTop.Width = 150;
             nDTop.Left = 160; nDTop.Top = y; nDTop.Width = 145; panel.Controls.Add(nDTop); y += 33;
-            nAngle = Num(90, 2, 178, 1, 1); Row("Angle / axe run (°)", nAngle);
+            nAngle = Num(90, 2, 178, 1, 1); Row("Angle d'arrivée (°)", nAngle);
             nDeport = Num(0, -2000, 2000, 1, 2); Row("Déport latéral (mm)", nDeport);
+            nL = Num(80, 1, 5000, 5, 1); Row("Long. tube ajouté", nL);
+            var sep3 = new Panel { Left = 0, Top = y, Width = 305, Height = 1, BackColor = CGrey }; panel.Controls.Add(sep3); y += 12;
+
+            // === COMMUN ===
             nEp = Num(0.8, 0.1, 10, 0.1, 2); Row("Épaisseur (mm)", nEp);
             nRec = Num(10, 0, 100, 1, 1); Row("Recouvrement (mm)", nRec);
-            nL = Num(80, 1, 5000, 5, 1); Row("Long. branche (axe)", nL);
             nSeg = Num(360, 60, 2000, 60, 0); Row("Segments", nSeg);
 
-            chkRun = new CheckBox { Text = "Exporter aussi virole tube droit", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
+            chkRun = new CheckBox { Text = "Exporter aussi le tube récepteur", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
             panel.Controls.Add(chkRun); y += 34;
 
             btnCalc = Btn("Calculer / Aperçu", 305); btnCalc.Left = 0; btnCalc.Top = y; btnCalc.Height = 34; btnCalc.Click += (s, e) => Calc(); panel.Controls.Add(btnCalc); y += 42;
@@ -139,9 +159,9 @@ namespace PiquageTube
             rightPanel.Controls.Add(content);
 
             var viewBar = new Panel { Dock = DockStyle.Top, Height = 42, BackColor = CBack };
-            btnVBr = MakeSeg("Développé branche", 8,   150);
-            btnVTr = MakeSeg("Trou tube droit",   162, 130);
-            btnV3D = MakeSeg("Vue 3D",             296, 100);
+            btnVBr = MakeSeg("Développé tube ajouté", 8,   160);
+            btnVTr = MakeSeg("Trou récepteur",       172, 130);
+            btnV3D = MakeSeg("Vue 3D",               306, 100);
             btnVBr.Click += (s, e) => ShowView(0);
             btnVTr.Click += (s, e) => ShowView(1);
             btnV3D.Click += (s, e) => ShowView(2);
@@ -170,6 +190,9 @@ namespace PiquageTube
         {
             bool on = chkCone.Checked;
             nDTop.Enabled = on; lblDTop.ForeColor = on ? CText : Color.FromArgb(110, 110, 110);
+            bool ron = chkRunCone.Checked;
+            nDRunHaut.Enabled = ron; lblDRunHaut.ForeColor = ron ? CText : Color.FromArgb(110, 110, 110);
+            nLRun.Enabled = ron; lblLRun.ForeColor = ron ? CText : Color.FromArgb(110, 110, 110);
         }
 
         // -------- profils --------
@@ -182,16 +205,20 @@ namespace PiquageTube
         void LoadProfil()
         {
             if (cbProfil.SelectedItem is not Profil p) return;
-            nDRun.Value = (decimal)p.DRun; nDBr.Value = (decimal)p.DBranche; chkCone.Checked = p.Conique;
+            _suspend = true;
+            nDRun.Value = (decimal)p.DRun; chkRunCone.Checked = p.RunConique; nDRunHaut.Value = (decimal)p.DRunHaut; nLRun.Value = (decimal)p.LRun;
+            nDBr.Value = (decimal)p.DBranche; chkCone.Checked = p.Conique;
             nDTop.Value = (decimal)p.DTop; nAngle.Value = (decimal)p.AngleDeg; nDeport.Value = (decimal)p.Deport;
             nEp.Value = (decimal)p.Epaisseur; nRec.Value = (decimal)p.Recouvr; nL.Value = (decimal)p.LDroite; nSeg.Value = p.Segments;
+            _suspend = false;
             UpdateConeState(); Calc();
         }
         void SaveProfil()
         {
             string nom = Prompt("Nom du profil :", (cbProfil.SelectedItem as Profil)?.Nom ?? "Nouveau profil");
             if (string.IsNullOrWhiteSpace(nom)) return;
-            var pr = new Profil { Nom = nom, DRun = (double)nDRun.Value, DBranche = (double)nDBr.Value, Conique = chkCone.Checked,
+            var pr = new Profil { Nom = nom, DRun = (double)nDRun.Value, RunConique = chkRunCone.Checked, DRunHaut = (double)nDRunHaut.Value, LRun = (double)nLRun.Value,
+                DBranche = (double)nDBr.Value, Conique = chkCone.Checked,
                 DTop = (double)nDTop.Value, AngleDeg = (double)nAngle.Value, Deport = (double)nDeport.Value,
                 Epaisseur = (double)nEp.Value, Recouvr = (double)nRec.Value, LDroite = (double)nL.Value, Segments = (int)nSeg.Value };
             int idx = _store.Profils.FindIndex(x => x.Nom == nom);
@@ -218,12 +245,14 @@ namespace PiquageTube
 
         // -------- calcul --------
         PiquageParams ReadParams() => new PiquageParams
-        { DRun = (double)nDRun.Value, DBranche = (double)nDBr.Value, Conique = chkCone.Checked, DTop = (double)nDTop.Value,
+        { DRun = (double)nDRun.Value, RunConique = chkRunCone.Checked, DRunHaut = (double)nDRunHaut.Value, LRun = (double)nLRun.Value,
+          DBranche = (double)nDBr.Value, Conique = chkCone.Checked, DTop = (double)nDTop.Value,
           AngleDeg = (double)nAngle.Value, Deport = (double)nDeport.Value, Epaisseur = (double)nEp.Value,
           Recouvr = (double)nRec.Value, LDroite = (double)nL.Value, Segments = (int)nSeg.Value };
 
         void Calc()
         {
+            if (_suspend) return;
             var p = ReadParams();
             _res = Geometry.Compute(p);
             if (!_res.Ok)
@@ -233,11 +262,12 @@ namespace PiquageTube
             }
             btnDxf.Enabled = true;
             var ci = CultureInfo.InvariantCulture;
-            string s = $"Branche : L={_res.BrancheLargeur.ToString("0.0", ci)} mm  (+rec {p.Recouvr:0})\n" +
+            string s = $"Tube ajouté : L={_res.BrancheLargeur.ToString("0.0", ci)} mm  (+rec {p.Recouvr:0})\n" +
                        $"Hauteur flan : {_res.BrancheHauteur.ToString("0.0", ci)} mm\n";
-            if (_res.IsCone) s += $"CÔNE demi-angle {_res.DemiAngleDeg.ToString("0.000", ci)}°\n  slant base {_res.SlantBase:0} / haut {_res.SlantTop:0}\n";
+            if (p.RunConique) s += $"Récepteur conique : Ø{p.DRun:0}→{p.DRunHaut:0}  (trou en secteur)\n";
+            if (_res.IsCone) s += $"Ajouté CÔNE demi-angle {_res.DemiAngleDeg.ToString("0.000", ci)}°\n  slant base {_res.SlantBase:0} / haut {_res.SlantTop:0}\n";
             s += $"Sabot : {_res.SabotMax.ToString("0.0", ci)} mm\n" +
-                 $"Trou run : {_res.TrouLargeur.ToString("0.0", ci)} x {_res.TrouHauteur.ToString("0.0", ci)} mm\n";
+                 $"Trou récepteur : {_res.TrouLargeur.ToString("0.0", ci)} x {_res.TrouHauteur.ToString("0.0", ci)} mm\n";
             if (!string.IsNullOrEmpty(_res.Message)) s += "\n" + _res.Message;
             lblInfo.Text = s;
             pBranche.SetData(_res.BrancheContour, true, _res.BrancheSabot, _res.IsCone ? _res.BrancheTop : null);
@@ -274,13 +304,30 @@ namespace PiquageTube
             ents.Add(new DxfLine { Layer = "TRACAGE", X1 = offX - 10, Y1 = offY, X2 = offX + 10, Y2 = offY });
             ents.Add(new DxfLine { Layer = "TRACAGE", X1 = offX, Y1 = offY - 10, X2 = offX, Y2 = offY + 10 });
 
-            if (chkRun.Checked)
+            if (chkRun.Checked && !p.RunConique)
             {
                 double runLen = Math.Max(150, _res.TrouHauteur + 80), runDev = Math.PI * (p.DRun - p.Epaisseur);
                 double rx = offX - runDev / 2, ry = offY + _res.TrouHauteur / 2 + 90;
                 ents.Add(new DxfPolyline { Layer = "DECOUPE", Closed = true, Points = new List<Pt2> { new(rx, ry), new(rx + runDev + p.Recouvr, ry), new(rx + runDev + p.Recouvr, ry + runLen), new(rx, ry + runLen) } });
                 ents.Add(new DxfLine { Layer = "TRACAGE", X1 = rx + runDev, Y1 = ry, X2 = rx + runDev, Y2 = ry + runLen });
                 ents.Add(new DxfText { Layer = "INFOS", X = rx, Y = ry - 12, Height = 5, Value = $"VIROLE TUBE DROIT dev={runDev:0.0}" });
+            }
+            else if (chkRun.Checked && p.RunConique)
+            {
+                // récepteur conique -> développé en SECTEUR de cône (annulaire)
+                double ep = p.Epaisseur, Rb = (p.DRun - ep) / 2, Rh = (p.DRunHaut - ep) / 2, Lr = Math.Max(1, p.LRun);
+                double kr = (Rh - Rb) / Lr, alpha = Math.Atan(Math.Abs(kr)), sa = Math.Sin(alpha);
+                if (sa > 1e-4)
+                {
+                    double Lb = Rb / sa, Lh = Rh / sa, Lmin = Math.Min(Lb, Lh), Lmax = Math.Max(Lb, Lh);
+                    double span = 2 * Math.PI * sa, lapAng = p.Recouvr / Lmax;
+                    double cxs = offX, cys = offY + _res.TrouHauteur / 2 + 110 + Lmax;
+                    var sec = new List<Pt2>(); int ns = Math.Max(24, p.Segments / 6);
+                    for (int i = 0; i <= ns; i++) { double a = Math.PI / 2 - (span + lapAng) / 2 + (span + lapAng) * i / ns; sec.Add(new Pt2(cxs + Lmax * Math.Cos(a), cys - Lmax * Math.Sin(a))); }
+                    for (int i = ns; i >= 0; i--) { double a = Math.PI / 2 - (span + lapAng) / 2 + (span + lapAng) * i / ns; sec.Add(new Pt2(cxs + Lmin * Math.Cos(a), cys - Lmin * Math.Sin(a))); }
+                    ents.Add(new DxfPolyline { Layer = "DECOUPE", Closed = true, Points = sec });
+                    ents.Add(new DxfText { Layer = "INFOS", X = cxs - Lmax / 2, Y = cys - Lmax - 14, Height = 5, Value = $"RECEPTEUR CONIQUE Ø{p.DRun:0}->{p.DRunHaut:0} (secteur, +rec {p.Recouvr:0})" });
+                }
             }
 
             try { File.WriteAllText(sfd.FileName, new DxfWriter().Build(ents)); MessageBox.Show("DXF exporté :\n" + sfd.FileName, "PiquageTube", MessageBoxButtons.OK, MessageBoxIcon.Information); }
@@ -303,7 +350,7 @@ namespace PiquageTube
         List<Pt2> _contour, _sabot, _top; bool _closed;
         public bool Mode3D = false; PiquageResult _r3d;
 
-        public PreviewPanel() { DoubleBuffered = true; BackColor = CBg; }
+        public PreviewPanel() { DoubleBuffered = true; ResizeRedraw = true; BackColor = CBg; }
         public void SetData(List<Pt2> c, bool closed, List<Pt2> sabot = null, List<Pt2> top = null) { _contour = c; _closed = closed; _sabot = sabot; _top = top; _r3d = null; Invalidate(); }
         public void Set3D(PiquageResult r) { _r3d = r; _contour = null; Invalidate(); }
 
@@ -364,28 +411,76 @@ namespace PiquageTube
         void Draw3D(Graphics g)
         {
             if (_r3d == null || !_r3d.Ok) { Empty(g); return; }
-            var lines = new List<(Pt3 a, Pt3 b)>();
-            double R = _r3d.R; double xmin = -R * 1.7, xmax = R * 1.7;
+            // k : 0 = tube récepteur (gris), 1 = sabot/intersection (rouge), 2 = tube ajouté (orange)
+            var segs = new List<(Pt3 a, Pt3 b, int k)>();
+            double R = _r3d.R; double kr = _r3d.RunKr; double xmin = -R * 1.7, xmax = R * 1.7;
+            double Rx(double x) => Math.Max(1.0, R + kr * x);
             for (double x = xmin; x <= xmax + 1e-6; x += (xmax - xmin) / 6)
-            { Pt3 prev = default; bool first = true; for (int i = 0; i <= 48; i++) { double a = 2 * Math.PI * i / 48; var p = new Pt3(x, R * Math.Cos(a), R * Math.Sin(a)); if (!first) lines.Add((prev, p)); prev = p; first = false; } }
-            for (int i = 0; i < 12; i++) { double a = 2 * Math.PI * i / 12; lines.Add((new Pt3(xmin, R * Math.Cos(a), R * Math.Sin(a)), new Pt3(xmax, R * Math.Cos(a), R * Math.Sin(a)))); }
-            int ninter = Math.Max(0, _r3d.Inter3D.Count - 1);
-            for (int i = 1; i < _r3d.Inter3D.Count; i++) lines.Add((_r3d.Inter3D[i - 1], _r3d.Inter3D[i]));
+            { Pt3 prev = default; bool first = true; for (int i = 0; i <= 48; i++) { double a = 2 * Math.PI * i / 48; var p = new Pt3(x, Rx(x) * Math.Cos(a), Rx(x) * Math.Sin(a)); if (!first) segs.Add((prev, p, 0)); prev = p; first = false; } }
+            for (int i = 0; i < 12; i++) { double a = 2 * Math.PI * i / 12; segs.Add((new Pt3(xmin, Rx(xmin) * Math.Cos(a), Rx(xmin) * Math.Sin(a)), new Pt3(xmax, Rx(xmax) * Math.Cos(a), Rx(xmax) * Math.Sin(a)), 0)); }
+
+            // courbe d'intersection (sabot)
+            for (int i = 1; i < _r3d.Inter3D.Count; i++) segs.Add((_r3d.Inter3D[i - 1], _r3d.Inter3D[i], 1));
+
+            // tube de descente : sabot (bas) -> génératrices -> anneau haut
+            var sad = _r3d.Inter3D; var top = _r3d.BrancheTop3D;
+            if (top != null && top.Count > 1)
+            {
+                for (int i = 1; i < top.Count; i++) segs.Add((top[i - 1], top[i], 2));          // anneau haut
+                int cnt = Math.Min(sad.Count, top.Count); int stp = Math.Max(1, cnt / 28);
+                for (int i = 0; i < cnt; i += stp) segs.Add((sad[i], top[i], 2));                // génératrices
+            }
 
             double az = 0.7, el = 0.5, ca = Math.Cos(az), sa = Math.Sin(az), ce = Math.Cos(el), se = Math.Sin(el);
             PointF P(Pt3 p) { double X = p.X * ca - p.Y * sa; double Y = p.X * sa * se + p.Y * ca * se + p.Z * ce; return new PointF((float)X, (float)Y); }
             double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
-            foreach (var (a, b) in lines) { var qa = P(a); var qb = P(b); minX = Math.Min(minX, Math.Min(qa.X, qb.X)); maxX = Math.Max(maxX, Math.Max(qa.X, qb.X)); minY = Math.Min(minY, Math.Min(qa.Y, qb.Y)); maxY = Math.Max(maxY, Math.Max(qa.Y, qb.Y)); }
+            foreach (var (a, b, _) in segs) { var qa = P(a); var qb = P(b); minX = Math.Min(minX, Math.Min(qa.X, qb.X)); maxX = Math.Max(maxX, Math.Max(qa.X, qb.X)); minY = Math.Min(minY, Math.Min(qa.Y, qb.Y)); maxY = Math.Max(maxY, Math.Max(qa.Y, qb.Y)); }
             double w = maxX - minX, h = maxY - minY; if (w <= 0) w = 1; if (h <= 0) h = 1;
             int m = 50; double s = Math.Min((Width - 2 * m) / w, (Height - 2 * m) / h);
             double ox = m + (Width - 2 * m - w * s) / 2, oy = m + (Height - 2 * m - h * s) / 2;
             PointF Map(Pt3 p) { var q = P(p); return new PointF((float)(ox + (q.X - minX) * s), (float)(Height - (oy + (q.Y - minY) * s))); }
 
-            using var pr = new Pen(CRun3D, 1f); using var pi = new Pen(CInter, 2.4f);
-            int n = lines.Count;
-            for (int i = 0; i < n; i++) { var (a, b) = lines[i]; g.DrawLine(i >= n - ninter ? pi : pr, Map(a), Map(b)); }
+            using var pr = new Pen(CRun3D, 1f);
+            using var pi = new Pen(CInter, 2.4f);
+            using var pb = new Pen(CTrace, 1.7f);   // orange = branche
+            foreach (var (a, b, k) in segs) g.DrawLine(k == 1 ? pi : k == 2 ? pb : pr, Map(a), Map(b));
+
+            // --- cotes 3D (Ø récepteur, Ø tube ajouté, angle) ---
+            using var pcote = new Pen(CDim, 1.3f);
+            using var paxis = new Pen(CDim, 1f) { DashStyle = DashStyle.Dash };
+            using var bcote = new SolidBrush(CDim);
+            using var fcote = new Font("Segoe UI", 9, FontStyle.Bold);
+            Pt3 Cen(List<Pt3> L) { double cx = 0, cy = 0, cz = 0; int nn = Math.Max(1, L.Count); foreach (var q in L) { cx += q.X; cy += q.Y; cz += q.Z; } return new Pt3(cx / nn, cy / nn, cz / nn); }
+
+            // axes + angle
+            g.DrawLine(paxis, Map(new Pt3(xmin, 0, 0)), Map(new Pt3(xmax, 0, 0)));   // axe récepteur
+            if (sad.Count > 0 && top != null && top.Count > 0)
+            {
+                var sc = Cen(sad); var tc = Cen(top);
+                var aEnd = new Pt3(sc.X + (tc.X - sc.X) * 1.15, sc.Y + (tc.Y - sc.Y) * 1.15, sc.Z + (tc.Z - sc.Z) * 1.15);
+                g.DrawLine(paxis, Map(sc), Map(aEnd));                               // axe tube ajouté
+                var pv = Map(sc);
+                g.DrawString($"{_r3d.NomAngle:0}°", fcote, bcote, pv.X + 6, pv.Y - 6);
+            }
+            // Ø récepteur : diamètre sur l'anneau central
+            {
+                PointF a1 = Map(new Pt3(0, 0, Rx(0))), a2 = Map(new Pt3(0, 0, -Rx(0)));
+                g.DrawLine(pcote, a1, a2);
+                string rl = _r3d.RunIsCone ? $"Ø{_r3d.NomDRun:0}→{_r3d.NomDRunHaut:0}" : $"Ø{_r3d.NomDRun:0}";
+                g.DrawString(rl, fcote, bcote, (a1.X + a2.X) / 2 + 6, (a1.Y + a2.Y) / 2);
+            }
+            // Ø tube ajouté : diamètre sur l'anneau haut
+            if (top != null && top.Count > 3)
+            {
+                PointF b1 = Map(top[0]), b2 = Map(top[top.Count / 2]);
+                g.DrawLine(pcote, b1, b2);
+                string tl = _r3d.IsCone ? $"Ø{_r3d.NomDTop:0}" : $"Ø{_r3d.NomDBr:0}";
+                g.DrawString(tl, fcote, bcote, (b1.X + b2.X) / 2 + 6, (b1.Y + b2.Y) / 2 - 14);
+            }
+
             using var f = new Font("Segoe UI", 9);
-            g.DrawString("rouge = courbe d'intersection (sabot)", f, new SolidBrush(Color.FromArgb(150, 160, 170)), m, 10);
+            g.DrawString("gris = tube récepteur   orange = tube ajouté   rouge = piquage   cotes = Ø / angle",
+                f, new SolidBrush(Color.FromArgb(150, 160, 170)), m, 10);
         }
 
         void Empty(Graphics g)

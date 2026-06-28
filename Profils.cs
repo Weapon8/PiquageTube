@@ -9,6 +9,9 @@ namespace PiquageTube
     {
         public string Nom { get; set; } = "Nouveau";
         public double DRun { get; set; } = 200;
+        public bool RunConique { get; set; } = false;
+        public double DRunHaut { get; set; } = 200;
+        public double LRun { get; set; } = 400;
         public double DBranche { get; set; } = 100;
         public bool Conique { get; set; } = false;
         public double DTop { get; set; } = 100;
@@ -67,6 +70,8 @@ namespace PiquageTube
             s.Profils.Add(new Profil { Nom = "Descente 100 cylindrique", DBranche = 100, Conique = false, DTop = 100, AngleDeg = 90 });
             s.Profils.Add(new Profil { Nom = "Descente conique 105 / 95", DBranche = 105, Conique = true, DTop = 95, LDroite = 2000, AngleDeg = 90 });
             s.Profils.Add(new Profil { Nom = "Jambon 100 a 67.5deg", DBranche = 100, Conique = false, DTop = 100, AngleDeg = 67.5, Deport = 20 });
+            s.Profils.Add(new Profil { Nom = "Culotte 120 / 100 a 45deg", DRun = 120, DBranche = 100, Conique = false, DTop = 100, AngleDeg = 45 });
+            s.Profils.Add(new Profil { Nom = "Recepteur conique 200->150 + br100", DRun = 200, RunConique = true, DRunHaut = 150, LRun = 400, DBranche = 100, Conique = false, DTop = 100, AngleDeg = 90 });
             return s;
         }
     }

@@ -30,9 +30,18 @@ namespace PiquageTube
 
         private static string PathFile()
         {
-            string dir = null;
-            try { dir = Path.GetDirectoryName(Environment.ProcessPath); } catch { }
-            if (string.IsNullOrEmpty(dir)) dir = AppContext.BaseDirectory;
+            string dir;
+            try
+            {
+                dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "TolTem", "PiquageTube");
+                Directory.CreateDirectory(dir);
+            }
+            catch
+            {
+                dir = AppContext.BaseDirectory;
+            }
             return Path.Combine(dir, "PiquageTube.profils.json");
         }
 

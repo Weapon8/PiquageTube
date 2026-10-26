@@ -58,6 +58,8 @@ namespace PiquageTube
             var n = new NumericUpDown { Minimum = (decimal)min, Maximum = (decimal)max, Increment = (decimal)inc, DecimalPlaces = dec, Value = (decimal)v,
                 BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9) };
             n.ValueChanged += (s, e) => Calc();   // temps réel
+            // la molette ne change plus les valeurs (évite les modifs par accident en zoomant la vue 3D)
+            n.MouseWheel += (s, e) => { if (e is HandledMouseEventArgs h) h.Handled = true; };
             return n;
         }
         Button Btn(string t, int w, Color? bg = null, Color? fg = null)
@@ -134,7 +136,7 @@ namespace PiquageTube
 
             // === COMMUN ===
             nEp = Num(0.8, 0.1, 10, 0.1, 2); Row("Épaisseur (mm)", nEp);
-            nRec = Num(10, 0, 100, 1, 1); Row("Recouvrement (mm)", nRec);
+            nRec = Num(20, 0, 100, 1, 1); Row("Recouvrement (mm)", nRec);
             nSeg = Num(360, 60, 2000, 60, 0); Row("Segments", nSeg);
 
             chkRun = new CheckBox { Text = "Exporter aussi la descente (tube + trou)", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = true };
@@ -342,9 +344,6 @@ namespace PiquageTube
                 // ---------- pièce 1 : MOIGNON (le bout rapporté) — rien d'autre que lui ----------
                 var moi = new List<DxfEntity>();
                 moi.Add(CutPoly(_res.BrancheContour, true));
-                moi.Add(new DxfPolyline { Layer = "TRACAGE", Closed = false, Points = _res.BrancheSabot });
-                if (_res.IsCone && _res.BrancheTop.Count > 1) moi.Add(new DxfPolyline { Layer = "TRACAGE", Closed = false, Points = _res.BrancheTop });
-                else { double W = _res.BrancheLargeur; moi.Add(new DxfLine { Layer = "TRACAGE", X1 = W, Y1 = 0, X2 = W, Y2 = _res.BrancheHauteur }); }
                 moi.Add(new DxfText { Layer = "REPERE", X = 4, Y = _res.BrancheHauteur + 6, Height = 6, Value = "HAUT" });
                 moi.Add(new DxfText { Layer = "INFOS", X = 0, Y = -14, Height = 5, Value = info });
                 moi.Add(new DxfText { Layer = "INFOS", X = 0, Y = -24, Height = 4, Value = "MOIGNON - Made with love by weapon pour TolTem" });
@@ -389,9 +388,6 @@ namespace PiquageTube
                     hole.Add(new Pt2(q.Z * (q.X - Math.PI / 2) + xAx, yAx + (q.Y - _res.TrouXMid)));
                 ents.Add(CutPoly(hole, true));
 
-                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = W, Y1 = 0, X2 = W, Y2 = L });                         // fin du tube nominal
-                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = 0, Y1 = yAx, X2 = W, Y2 = yAx });                      // ligne passant par le centre du trou
-                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = xAx, Y1 = yAx - 10, X2 = xAx, Y2 = yAx + 10 });       // croix au centre du trou
                 ents.Add(new DxfText { Layer = "REPERE", X = W + lap + 8, Y = L - 6, Height = 6, Value = "HAUT" });
                 ents.Add(new DxfText { Layer = "REPERE", X = W + lap + 8, Y = 0, Height = 6, Value = "BAS" });
                 ents.Add(new DxfText { Layer = "INFOS", X = 0, Y = -14, Height = 5,
@@ -424,11 +420,6 @@ namespace PiquageTube
                 ents.Add(CutPoly(secS, true));
                 ents.Add(CutPoly(holeS, true));
 
-                var s0 = Sh(At(Lmin, a0 + span)); var s1 = Sh(At(Lmax, a0 + span));                 // fin du tube nominal
-                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = s0.X, Y1 = s0.Y, X2 = s1.X, Y2 = s1.Y });
-                var ax = Sh(At((_res.R + kr * _res.TrouXMid) / sa, Math.PI / 2));                      // centre du trou
-                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = ax.X - 10, Y1 = ax.Y, X2 = ax.X + 10, Y2 = ax.Y });
-                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = ax.X, Y1 = ax.Y - 10, X2 = ax.X, Y2 = ax.Y + 10 });
                 ents.Add(new DxfText { Layer = "INFOS", X = 0, Y = -14, Height = 5,
                     Value = $"DESCENTE CONIQUE D{p.DRun:0}->{p.DRunHaut:0} L{L:0} ep{ep.ToString("0.##", ci)} rec{p.Recouvr:0} - centre trou a {_res.AxeBas:0.#} du bas (D{p.DRun:0}) - couture a {p.CoutureDeg:0}deg" });
                 ents.Add(new DxfText { Layer = "INFOS", X = 0, Y = -24, Height = 4, Value = "DESCENTE + trou piquage D" + p.DBranche.ToString("0") + " " + p.AngleDeg.ToString("0") + "deg - Made with love by weapon pour TolTem" });

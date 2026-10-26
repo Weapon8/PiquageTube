@@ -114,9 +114,9 @@ namespace PiquageTube
             chkSolid.CheckedChanged += (s, e) => { if (p3D != null) { p3D.Solid = chkSolid.Checked; p3D.Invalidate(); } };
             tip.SetToolTip(chkSolid, "Vue 3D : descente en volume plein (ombré) ou en fil de fer (squelette).");
             panel.Controls.Add(chkSolid); y += 28;
-            nDRunHaut = Num(150, 5, 5000, 1, 2); lblDRunHaut = Lab("Ø récepteur (haut)", y + 4, CText); lblDRunHaut.Width = 150;
+            nDRunHaut = Num(200, 5, 5000, 1, 2); lblDRunHaut = Lab("Ø récepteur (haut)", y + 4, CText); lblDRunHaut.Width = 150;
             nDRunHaut.Left = 160; nDRunHaut.Top = y; nDRunHaut.Width = 145; panel.Controls.Add(nDRunHaut); y += 33;
-            nDRun = Num(200, 5, 5000, 1, 2); Row("Ø récepteur (bas)", nDRun);
+            nDRun = Num(150, 5, 5000, 1, 2); Row("Ø récepteur (bas)", nDRun);
             nLRun = Num(400, 10, 20000, 10, 0); lblLRun = Lab("Long. descente", y + 4, CText); lblLRun.Width = 150;
             nLRun.Left = 160; nLRun.Top = y; nLRun.Width = 145; panel.Controls.Add(nLRun); y += 33;
             nPosTrou = Num(0, 0, 20000, 10, 1); Row("Centre trou (0=milieu)", nPosTrou);
@@ -293,7 +293,7 @@ namespace PiquageTube
             var ci = CultureInfo.InvariantCulture;
             string s = $"Tube ajouté : L={_res.BrancheLargeur.ToString("0.0", ci)} mm  (+rec {p.Recouvr:0})\n" +
                        $"Hauteur flan : {_res.BrancheHauteur.ToString("0.0", ci)} mm\n";
-            if (p.RunConique) s += $"Récepteur conique : Ø{p.DRun:0}→{p.DRunHaut:0}  (trou en secteur)\n";
+            if (p.RunConique) s += $"Récepteur conique : Ø haut {p.DRunHaut:0} → Ø bas {p.DRun:0}  (trou en secteur)\n";
             if (_res.IsCone) s += $"Ajouté CÔNE demi-angle {_res.DemiAngleDeg.ToString("0.000", ci)}°\n  slant base {_res.SlantBase:0} / haut {_res.SlantTop:0}\n";
             s += $"Sabot : {_res.SabotMax.ToString("0.0", ci)} mm\n" +
                  $"Trou récepteur : {_res.TrouLargeur.ToString("0.0", ci)} x {_res.TrouHauteur.ToString("0.0", ci)} mm\n" +
@@ -442,6 +442,8 @@ namespace PiquageTube
         static readonly Color CTop = Color.FromArgb(110, 220, 120);    // vert = arc haut cône
         static readonly Color CRun3D = Color.FromArgb(90, 100, 115);
         static readonly Color CInter = Color.FromArgb(255, 92, 92);    // rouge = intersection
+        static readonly Color CBas3D = Color.FromArgb(70, 150, 255);   // bleu = BAS de la descente
+        static readonly Color CHaut3D = Color.FromArgb(255, 60, 60);   // rouge = HAUT de la descente
         static readonly Color CDim = Color.FromArgb(165, 185, 210);    // cotes encombrement
 
         List<Pt2> _contour, _sabot, _top; bool _closed;
@@ -535,7 +537,7 @@ namespace PiquageTube
             double xm = (xmin + xmax) / 2;
             double Rx(double x) => Math.Max(1.0, R + kr * x);
             for (double x = xmin; x <= xmax + 1e-6; x += (xmax - xmin) / 6)
-            { Pt3 prev = default; bool first = true; for (int i = 0; i <= 48; i++) { double a = 2 * Math.PI * i / 48; var p = new Pt3(x, Rx(x) * Math.Cos(a), Rx(x) * Math.Sin(a)); if (!first) segs.Add((prev, p, 0)); prev = p; first = false; } }
+            { int kk = x < xmin + 1e-6 ? 3 : (x > xmax - 1e-3 ? 4 : 0); Pt3 prev = default; bool first = true; for (int i = 0; i <= 48; i++) { double a = 2 * Math.PI * i / 48; var p = new Pt3(x, Rx(x) * Math.Cos(a), Rx(x) * Math.Sin(a)); if (!first) segs.Add((prev, p, kk)); prev = p; first = false; } }
             for (int i = 0; i < 12; i++) { double a = 2 * Math.PI * i / 12; segs.Add((new Pt3(xmin, Rx(xmin) * Math.Cos(a), Rx(xmin) * Math.Sin(a)), new Pt3(xmax, Rx(xmax) * Math.Cos(a), Rx(xmax) * Math.Sin(a)), 0)); }
 
             // courbe d'intersection (sabot)
@@ -562,9 +564,11 @@ namespace PiquageTube
             using var pr = new Pen(CRun3D, 1f);
             using var pi = new Pen(CInter, 2.4f);
             using var pb = new Pen(CTrace, 1.7f);   // orange = branche
+            using var pBas = new Pen(CBas3D, 2.4f);    // anneau BAS (bleu)
+            using var pHaut = new Pen(CHaut3D, 2.4f);  // anneau HAUT (rouge)
             if (!Solid)
             {
-                foreach (var (a, b, k) in segs) g.DrawLine(k == 1 ? pi : k == 2 ? pb : pr, Map(a), Map(b));
+                foreach (var (a, b, k) in segs) g.DrawLine(k == 1 ? pi : k == 2 ? pb : k == 3 ? pBas : k == 4 ? pHaut : pr, Map(a), Map(b));
             }
             else
             {
@@ -612,11 +616,11 @@ namespace PiquageTube
                 }
                 // courbe d'intersection (légèrement avancée pour ne pas être mangée par les facettes voisines)
                 foreach (var (a, b, k) in segs)
-                    if (k == 1) items.Add((new[] { Map(a), Map(b) }, (Near(a) + Near(b)) / 2 + 3.0, CInter, 2));
+                    if (k == 1 || k == 3 || k == 4) items.Add((new[] { Map(a), Map(b) }, (Near(a) + Near(b)) / 2 + 3.0, CInter, k == 1 ? 2 : k));
                 items.Sort((u, v) => u.depth.CompareTo(v.depth));
                 foreach (var it in items)
                 {
-                    if (it.kind == 2) { g.DrawLine(pi, it.pts[0], it.pts[1]); continue; }
+                    if (it.kind >= 2) { g.DrawLine(it.kind == 3 ? pBas : it.kind == 4 ? pHaut : pi, it.pts[0], it.pts[1]); continue; }
                     using var fb = new SolidBrush(it.c);
                     g.FillPolygon(fb, it.pts);
                     using var op = new Pen(it.kind == 1 ? Color.FromArgb(150, 70, 20) : it.c, 1f);
@@ -644,20 +648,20 @@ namespace PiquageTube
             // BAS / HAUT de la descente (l'eau coule vers le BAS ; le piquage penche vers le HAUT)
             {
                 using var fbh = new Font("Segoe UI", 10, FontStyle.Bold);
-                using var bbh = new SolidBrush(Color.FromArgb(255, 140, 0));
+                using var bBas = new SolidBrush(CBas3D); using var bHaut = new SolidBrush(CHaut3D);
                 var pb0 = Map(new Pt3(xmin, 0, -Rx(xmin))); var pt0 = Map(new Pt3(xmax, 0, -Rx(xmax)));
                 string sBas = "BAS ↓ (Ø" + _r3d.NomDRun.ToString("0") + ")";
                 string sHaut = "HAUT (Ø" + (_r3d.RunIsCone ? _r3d.NomDRunHaut : _r3d.NomDRun).ToString("0") + ")";
                 var zb = g.MeasureString(sBas, fbh); var zh = g.MeasureString(sHaut, fbh);
                 float yb = Math.Min(Height - 50, pb0.Y + 8), yh = Math.Min(Height - 50, pt0.Y + 8);
-                g.DrawString(sBas, fbh, bbh, Math.Max(8f, Math.Min(pb0.X - zb.Width / 2, Width - zb.Width - 8f)), yb);
-                g.DrawString(sHaut, fbh, bbh, Math.Max(8f, Math.Min(pt0.X - zh.Width / 2, Width - zh.Width - 8f)), yh);
+                g.DrawString(sBas, fbh, bBas, Math.Max(8f, Math.Min(pb0.X - zb.Width / 2, Width - zb.Width - 8f)), yb);
+                g.DrawString(sHaut, fbh, bHaut, Math.Max(8f, Math.Min(pt0.X - zh.Width / 2, Width - zh.Width - 8f)), yh);
             }
             // Ø récepteur : diamètre sur l'anneau central
             {
                 PointF a1 = Map(new Pt3(xm, 0, Rx(xm))), a2 = Map(new Pt3(xm, 0, -Rx(xm)));
                 g.DrawLine(pcote, a1, a2);
-                string rl = _r3d.RunIsCone ? $"Ø{_r3d.NomDRun:0}→{_r3d.NomDRunHaut:0}" : $"Ø{_r3d.NomDRun:0}";
+                string rl = _r3d.RunIsCone ? $"Ø{_r3d.NomDRunHaut:0}→{_r3d.NomDRun:0}" : $"Ø{_r3d.NomDRun:0}";
                 g.DrawString(rl, fcote, bcote, (a1.X + a2.X) / 2 + 6, (a1.Y + a2.Y) / 2);
             }
             // Ø tube ajouté : diamètre sur l'anneau haut

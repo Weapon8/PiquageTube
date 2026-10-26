@@ -18,7 +18,7 @@ namespace PiquageTube
         public double AngleDeg { get; set; } = 90;
         public double Deport { get; set; } = 0;
         public double Epaisseur { get; set; } = 0.8;
-        public double Recouvr { get; set; } = 10;
+        public double Recouvr { get; set; } = 20;
         public double LDroite { get; set; } = 80;
         public int Segments { get; set; } = 360;
         // position du piquage sur la descente (anciens profils JSON : valeurs par défaut = comportement d'avant)
@@ -83,7 +83,7 @@ namespace PiquageTube
             s.Profils.Add(new Profil { Nom = "Descente conique 105 / 95", DBranche = 105, Conique = true, DTop = 95, LDroite = 2000, AngleDeg = 90 });
             s.Profils.Add(new Profil { Nom = "Jambon 100 a 67.5deg", DBranche = 100, Conique = false, DTop = 100, AngleDeg = 67.5, Deport = 20 });
             s.Profils.Add(new Profil { Nom = "Culotte 120 / 100 a 45deg", DRun = 120, DBranche = 100, Conique = false, DTop = 100, AngleDeg = 45 });
-            s.Profils.Add(new Profil { Nom = "Recepteur conique 200->150 + br100", DRun = 200, RunConique = true, DRunHaut = 150, LRun = 400, DBranche = 100, Conique = false, DTop = 100, AngleDeg = 90 });
+            s.Profils.Add(new Profil { Nom = "Recepteur conique 200->150 + br100", DRun = 150, RunConique = true, DRunHaut = 200, LRun = 400, DBranche = 100, Conique = false, DTop = 100, AngleDeg = 90 });
             return s;
         }
     }

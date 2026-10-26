@@ -107,12 +107,12 @@ namespace PiquageTube
 
             // === TUBE RÉCEPTEUR (principal) = la DESCENTE ===
             Lab("TUBE RÉCEPTEUR (DESCENTE)", y, CAccent, 9, FontStyle.Bold); y += 22;
-            nDRun = Num(200, 5, 5000, 1, 2); Row("Ø récepteur (bas)", nDRun);
-            chkRunCone = new CheckBox { Text = "Récepteur conique (Ø bas ≠ haut)", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
+            chkRunCone = new CheckBox { Text = "Récepteur conique (Ø haut ≠ bas)", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
             chkRunCone.CheckedChanged += (s, e) => { UpdateConeState(); Calc(); };
             panel.Controls.Add(chkRunCone); y += 28;
             nDRunHaut = Num(150, 5, 5000, 1, 2); lblDRunHaut = Lab("Ø récepteur (haut)", y + 4, CText); lblDRunHaut.Width = 150;
             nDRunHaut.Left = 160; nDRunHaut.Top = y; nDRunHaut.Width = 145; panel.Controls.Add(nDRunHaut); y += 33;
+            nDRun = Num(200, 5, 5000, 1, 2); Row("Ø récepteur (bas)", nDRun);
             nLRun = Num(400, 10, 20000, 10, 0); lblLRun = Lab("Long. descente", y + 4, CText); lblLRun.Width = 150;
             nLRun.Left = 160; nLRun.Top = y; nLRun.Width = 145; panel.Controls.Add(nLRun); y += 33;
             nPosTrou = Num(0, 0, 20000, 10, 1); Row("Centre trou (0=milieu)", nPosTrou);
@@ -582,8 +582,12 @@ namespace PiquageTube
                 using var fbh = new Font("Segoe UI", 10, FontStyle.Bold);
                 using var bbh = new SolidBrush(Color.FromArgb(255, 140, 0));
                 var pb0 = Map(new Pt3(xmin, 0, -Rx(xmin))); var pt0 = Map(new Pt3(xmax, 0, -Rx(xmax)));
-                g.DrawString("BAS ↓ (Ø" + _r3d.NomDRun.ToString("0") + ")", fbh, bbh, pb0.X - 10, pb0.Y + 8);
-                g.DrawString("HAUT (Ø" + (_r3d.RunIsCone ? _r3d.NomDRunHaut : _r3d.NomDRun).ToString("0") + ")", fbh, bbh, pt0.X - 70, pt0.Y + 8);
+                string sBas = "BAS ↓ (Ø" + _r3d.NomDRun.ToString("0") + ")";
+                string sHaut = "HAUT (Ø" + (_r3d.RunIsCone ? _r3d.NomDRunHaut : _r3d.NomDRun).ToString("0") + ")";
+                var zb = g.MeasureString(sBas, fbh); var zh = g.MeasureString(sHaut, fbh);
+                float yb = Math.Min(Height - 50, pb0.Y + 8), yh = Math.Min(Height - 50, pt0.Y + 8);
+                g.DrawString(sBas, fbh, bbh, Math.Max(8f, Math.Min(pb0.X - zb.Width / 2, Width - zb.Width - 8f)), yb);
+                g.DrawString(sHaut, fbh, bbh, Math.Max(8f, Math.Min(pt0.X - zh.Width / 2, Width - zh.Width - 8f)), yh);
             }
             // Ø récepteur : diamètre sur l'anneau central
             {

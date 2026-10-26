@@ -113,8 +113,8 @@ namespace PiquageTube
             nDRunHaut.Left = 160; nDRunHaut.Top = y; nDRunHaut.Width = 145; panel.Controls.Add(nDRunHaut); y += 33;
             nLRun = Num(400, 10, 20000, 10, 0); lblLRun = Lab("Long. descente", y + 4, CText); lblLRun.Width = 150;
             nLRun.Left = 160; nLRun.Top = y; nLRun.Width = 145; panel.Controls.Add(nLRun); y += 33;
-            nPosTrou = Num(0, 0, 20000, 10, 1); Row("Axe piquage / bas", nPosTrou);
-            tip.SetToolTip(nPosTrou, "Distance de l'axe du piquage au BAS de la descente (le bas = côté opposé à l'inclinaison du moignon). 0 = au milieu.");
+            nPosTrou = Num(0, 0, 20000, 10, 1); Row("Centre trou (0=milieu)", nPosTrou);
+            tip.SetToolTip(nPosTrou, "Distance du CENTRE DU TROU au BAS de la descente (le bas = côté opposé à l'inclinaison du moignon). 0 = au milieu de la longueur.");
             nCouture = Num(180, 0, 360, 5, 0); Row("Couture (° / piquage)", nCouture);
             tip.SetToolTip(nCouture, "Position de la couture de la descente, en degrés autour du tube à partir de l'axe du piquage. 180 = à l'opposé.");
             var sep2 = new Panel { Left = 0, Top = y, Width = 305, Height = 1, BackColor = CGrey }; panel.Controls.Add(sep2); y += 12;
@@ -264,7 +264,7 @@ namespace PiquageTube
         {
             var w = new List<string>();
             double L = Math.Max(1, p.LRun);
-            double lo = r.AxeBas + r.TrouXMin, hi = r.AxeBas + r.TrouXMax;
+            double lo = r.AxeBas + (r.TrouXMin - r.TrouXMid), hi = r.AxeBas + (r.TrouXMax - r.TrouXMid);
             if (lo < 0 || hi > L)
                 w.Add($"⚠ Le trou sort de la descente : de {lo:0} à {hi:0} mm pour L={L:0}.");
             double phiS = p.CoutureDeg * Math.PI / 180.0;
@@ -291,7 +291,7 @@ namespace PiquageTube
             if (_res.IsCone) s += $"Ajouté CÔNE demi-angle {_res.DemiAngleDeg.ToString("0.000", ci)}°\n  slant base {_res.SlantBase:0} / haut {_res.SlantTop:0}\n";
             s += $"Sabot : {_res.SabotMax.ToString("0.0", ci)} mm\n" +
                  $"Trou récepteur : {_res.TrouLargeur.ToString("0.0", ci)} x {_res.TrouHauteur.ToString("0.0", ci)} mm\n" +
-                 $"Descente : axe à {_res.AxeBas.ToString("0.#", ci)} mm du bas, couture à {p.CoutureDeg:0}°\n";
+                 $"Descente : centre du trou à {_res.AxeBas.ToString("0.#", ci)} mm du bas{(p.TrouDepuisBas <= 0 ? " (milieu)" : "")}, couture à {p.CoutureDeg:0}°\n";
             string hw = HoleWarning(p, _res);
             if (hw.Length > 0) s += "\n" + hw + "\n";
             if (!string.IsNullOrEmpty(_res.Message)) s += "\n" + _res.Message;
@@ -381,21 +381,21 @@ namespace PiquageTube
             {
                 // ----- cylindre : flan rectangulaire, x = arc depuis la couture, y = depuis le bas -----
                 double R = Rb, W = 2 * Math.PI * R, lap = p.Recouvr;
-                double yAx = _res.AxeBas, xAx = R * phiS;       // axe du piquage sur le flan
+                double yAx = _res.AxeBas, xAx = R * phiS;       // centre du trou sur le flan
                 ents.Add(CutPoly(new List<Pt2> { new(0, 0), new(W + lap, 0), new(W + lap, L), new(0, L) }, true));
 
                 var hole = new List<Pt2>(_res.TrouParam.Count);
                 foreach (var q in _res.TrouParam)                // q = (psi, x, R local)
-                    hole.Add(new Pt2(q.Z * (q.X - Math.PI / 2) + xAx, yAx + q.Y));
+                    hole.Add(new Pt2(q.Z * (q.X - Math.PI / 2) + xAx, yAx + (q.Y - _res.TrouXMid)));
                 ents.Add(CutPoly(hole, true));
 
                 ents.Add(new DxfLine { Layer = "TRACAGE", X1 = W, Y1 = 0, X2 = W, Y2 = L });                         // fin du tube nominal
-                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = 0, Y1 = yAx, X2 = W, Y2 = yAx });                      // ligne d'axe du piquage
-                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = xAx, Y1 = yAx - 10, X2 = xAx, Y2 = yAx + 10 });       // croix d'axe
+                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = 0, Y1 = yAx, X2 = W, Y2 = yAx });                      // ligne passant par le centre du trou
+                ents.Add(new DxfLine { Layer = "TRACAGE", X1 = xAx, Y1 = yAx - 10, X2 = xAx, Y2 = yAx + 10 });       // croix au centre du trou
                 ents.Add(new DxfText { Layer = "REPERE", X = W + lap + 8, Y = L - 6, Height = 6, Value = "HAUT" });
                 ents.Add(new DxfText { Layer = "REPERE", X = W + lap + 8, Y = 0, Height = 6, Value = "BAS" });
                 ents.Add(new DxfText { Layer = "INFOS", X = 0, Y = -14, Height = 5,
-                    Value = $"DESCENTE D{p.DRun:0} L{L:0} ep{ep.ToString("0.##", ci)} rec{lap:0} dev{W:0.0} - axe piquage a {yAx:0.#} du bas - couture a {p.CoutureDeg:0}deg" });
+                    Value = $"DESCENTE D{p.DRun:0} L{L:0} ep{ep.ToString("0.##", ci)} rec{lap:0} dev{W:0.0} - centre trou a {yAx:0.#} du bas - couture a {p.CoutureDeg:0}deg" });
                 ents.Add(new DxfText { Layer = "INFOS", X = 0, Y = -24, Height = 4, Value = "DESCENTE + trou piquage D" + p.DBranche.ToString("0") + " " + p.AngleDeg.ToString("0") + "deg - Made with love by weapon pour TolTem" });
             }
             else
@@ -426,11 +426,11 @@ namespace PiquageTube
 
                 var s0 = Sh(At(Lmin, a0 + span)); var s1 = Sh(At(Lmax, a0 + span));                 // fin du tube nominal
                 ents.Add(new DxfLine { Layer = "TRACAGE", X1 = s0.X, Y1 = s0.Y, X2 = s1.X, Y2 = s1.Y });
-                var ax = Sh(At(_res.R / sa, Math.PI / 2));                                           // axe du piquage
+                var ax = Sh(At((_res.R + kr * _res.TrouXMid) / sa, Math.PI / 2));                      // centre du trou
                 ents.Add(new DxfLine { Layer = "TRACAGE", X1 = ax.X - 10, Y1 = ax.Y, X2 = ax.X + 10, Y2 = ax.Y });
                 ents.Add(new DxfLine { Layer = "TRACAGE", X1 = ax.X, Y1 = ax.Y - 10, X2 = ax.X, Y2 = ax.Y + 10 });
                 ents.Add(new DxfText { Layer = "INFOS", X = 0, Y = -14, Height = 5,
-                    Value = $"DESCENTE CONIQUE D{p.DRun:0}->{p.DRunHaut:0} L{L:0} ep{ep.ToString("0.##", ci)} rec{p.Recouvr:0} - axe piquage a {_res.AxeBas:0.#} du bas (D{p.DRun:0}) - couture a {p.CoutureDeg:0}deg" });
+                    Value = $"DESCENTE CONIQUE D{p.DRun:0}->{p.DRunHaut:0} L{L:0} ep{ep.ToString("0.##", ci)} rec{p.Recouvr:0} - centre trou a {_res.AxeBas:0.#} du bas (D{p.DRun:0}) - couture a {p.CoutureDeg:0}deg" });
                 ents.Add(new DxfText { Layer = "INFOS", X = 0, Y = -24, Height = 4, Value = "DESCENTE + trou piquage D" + p.DBranche.ToString("0") + " " + p.AngleDeg.ToString("0") + "deg - Made with love by weapon pour TolTem" });
             }
             return ents;
@@ -535,7 +535,9 @@ namespace PiquageTube
             if (_r3d == null || !_r3d.Ok) { Empty(g); return; }
             // k : 0 = tube récepteur (gris), 1 = sabot/intersection (rouge), 2 = tube ajouté (orange)
             var segs = new List<(Pt3 a, Pt3 b, int k)>();
-            double R = _r3d.R; double kr = _r3d.RunKr; double xmin = -R * 1.7, xmax = R * 1.7;
+            double R = _r3d.R; double kr = _r3d.RunKr;
+            double xmin = -_r3d.AxeCross, xmax = xmin + Math.Max(1, _r3d.RunLength);   // descente à sa vraie longueur
+            double xm = (xmin + xmax) / 2;
             double Rx(double x) => Math.Max(1.0, R + kr * x);
             for (double x = xmin; x <= xmax + 1e-6; x += (xmax - xmin) / 6)
             { Pt3 prev = default; bool first = true; for (int i = 0; i <= 48; i++) { double a = 2 * Math.PI * i / 48; var p = new Pt3(x, Rx(x) * Math.Cos(a), Rx(x) * Math.Sin(a)); if (!first) segs.Add((prev, p, 0)); prev = p; first = false; } }
@@ -586,7 +588,7 @@ namespace PiquageTube
             }
             // Ø récepteur : diamètre sur l'anneau central
             {
-                PointF a1 = Map(new Pt3(0, 0, Rx(0))), a2 = Map(new Pt3(0, 0, -Rx(0)));
+                PointF a1 = Map(new Pt3(xm, 0, Rx(xm))), a2 = Map(new Pt3(xm, 0, -Rx(xm)));
                 g.DrawLine(pcote, a1, a2);
                 string rl = _r3d.RunIsCone ? $"Ø{_r3d.NomDRun:0}→{_r3d.NomDRunHaut:0}" : $"Ø{_r3d.NomDRun:0}";
                 g.DrawString(rl, fcote, bcote, (a1.X + a2.X) / 2 + 6, (a1.Y + a2.Y) / 2);

@@ -577,6 +577,14 @@ namespace PiquageTube
                 var pv = Map(sc);
                 g.DrawString($"{_r3d.NomAngle:0}°", fcote, bcote, pv.X + 6, pv.Y - 6);
             }
+            // BAS / HAUT de la descente (l'eau coule vers le BAS ; le piquage penche vers le HAUT)
+            {
+                using var fbh = new Font("Segoe UI", 10, FontStyle.Bold);
+                using var bbh = new SolidBrush(Color.FromArgb(255, 140, 0));
+                var pb0 = Map(new Pt3(xmin, 0, -Rx(xmin))); var pt0 = Map(new Pt3(xmax, 0, -Rx(xmax)));
+                g.DrawString("BAS ↓ (Ø" + _r3d.NomDRun.ToString("0") + ")", fbh, bbh, pb0.X - 10, pb0.Y + 8);
+                g.DrawString("HAUT (Ø" + (_r3d.RunIsCone ? _r3d.NomDRunHaut : _r3d.NomDRun).ToString("0") + ")", fbh, bbh, pt0.X - 70, pt0.Y + 8);
+            }
             // Ø récepteur : diamètre sur l'anneau central
             {
                 PointF a1 = Map(new Pt3(xm, 0, Rx(xm))), a2 = Map(new Pt3(xm, 0, -Rx(xm)));

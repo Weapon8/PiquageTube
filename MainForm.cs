@@ -317,7 +317,7 @@ namespace PiquageTube
             using var sfd = new SaveFileDialog
             {
                 Filter = "DXF (*.dxf)|*.dxf",
-                Title = "Nom de base : _MOIGNON.dxf et _DESCENTE.dxf seront créés",
+                Title = "Nom de base : _MOIGNON.dxf et _DESCENTE.dxf (avec le trou) seront créés",
                 FileName = $"PIQUAGE_D{p.DRun:0}_D{p.DBranche:0}_{p.AngleDeg:0}deg{(p.Conique ? "_cone" : "")}.dxf"
             };
             if (sfd.ShowDialog() != DialogResult.OK) return;
@@ -452,7 +452,27 @@ namespace PiquageTube
         List<Pt2> _contour, _sabot, _top; bool _closed;
         public bool Mode3D = false; PiquageResult _r3d;
 
-        public PreviewPanel() { DoubleBuffered = true; ResizeRedraw = true; BackColor = CBg; }
+        // --- rotation / zoom de la vue 3D (souris) ---
+        const double Az0 = 0.7, El0 = 0.5;
+        double _az = Az0, _el = El0, _zoom = 1.0;
+        bool _drag; Point _lastMouse;
+
+        public PreviewPanel()
+        {
+            DoubleBuffered = true; ResizeRedraw = true; BackColor = CBg;
+            MouseDown += (s, e) => { if (Mode3D && e.Button == MouseButtons.Left) { _drag = true; _lastMouse = e.Location; Cursor = Cursors.SizeAll; } };
+            MouseMove += (s, e) =>
+            {
+                if (!Mode3D || !_drag) return;
+                _az += (e.X - _lastMouse.X) * 0.01;
+                _el = Math.Max(-1.5, Math.Min(1.5, _el + (e.Y - _lastMouse.Y) * 0.01));
+                _lastMouse = e.Location; Invalidate();
+            };
+            MouseUp += (s, e) => { _drag = false; Cursor = Cursors.Default; };
+            MouseDoubleClick += (s, e) => { if (Mode3D) { _az = Az0; _el = El0; _zoom = 1.0; Invalidate(); } };   // double-clic = vue d'origine
+            MouseEnter += (s, e) => { if (Mode3D) Focus(); };                                                    // pour recevoir la molette
+            MouseWheel += (s, e) => { if (!Mode3D) return; _zoom = Math.Max(0.3, Math.Min(6.0, _zoom * (e.Delta > 0 ? 1.12 : 1 / 1.12))); Invalidate(); };
+        }
         public void SetData(List<Pt2> c, bool closed, List<Pt2> sabot = null, List<Pt2> top = null) { _contour = c; _closed = closed; _sabot = sabot; _top = top; _r3d = null; Invalidate(); }
         public void Set3D(PiquageResult r) { _r3d = r; _contour = null; Invalidate(); }
 
@@ -533,12 +553,12 @@ namespace PiquageTube
                 for (int i = 0; i < cnt; i += stp) segs.Add((sad[i], top[i], 2));                // génératrices
             }
 
-            double az = 0.7, el = 0.5, ca = Math.Cos(az), sa = Math.Sin(az), ce = Math.Cos(el), se = Math.Sin(el);
+            double az = _az, el = _el, ca = Math.Cos(az), sa = Math.Sin(az), ce = Math.Cos(el), se = Math.Sin(el);
             PointF P(Pt3 p) { double X = p.X * ca - p.Y * sa; double Y = p.X * sa * se + p.Y * ca * se + p.Z * ce; return new PointF((float)X, (float)Y); }
             double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
             foreach (var (a, b, _) in segs) { var qa = P(a); var qb = P(b); minX = Math.Min(minX, Math.Min(qa.X, qb.X)); maxX = Math.Max(maxX, Math.Max(qa.X, qb.X)); minY = Math.Min(minY, Math.Min(qa.Y, qb.Y)); maxY = Math.Max(maxY, Math.Max(qa.Y, qb.Y)); }
             double w = maxX - minX, h = maxY - minY; if (w <= 0) w = 1; if (h <= 0) h = 1;
-            int m = 50; double s = Math.Min((Width - 2 * m) / w, (Height - 2 * m) / h);
+            int m = 50; double s = Math.Min((Width - 2 * m) / w, (Height - 2 * m) / h) * _zoom;
             double ox = m + (Width - 2 * m - w * s) / 2, oy = m + (Height - 2 * m - h * s) / 2;
             PointF Map(Pt3 p) { var q = P(p); return new PointF((float)(ox + (q.X - minX) * s), (float)(Height - (oy + (q.Y - minY) * s))); }
 
@@ -583,6 +603,8 @@ namespace PiquageTube
             using var f = new Font("Segoe UI", 9);
             g.DrawString("gris = tube récepteur   orange = tube ajouté   rouge = piquage   cotes = Ø / angle",
                 f, new SolidBrush(Color.FromArgb(150, 160, 170)), m, 10);
+            g.DrawString("glisser = tourner   molette = zoom   double-clic = vue d'origine",
+                f, new SolidBrush(Color.FromArgb(120, 130, 140)), m, Height - 26);
         }
 
         void Empty(Graphics g)

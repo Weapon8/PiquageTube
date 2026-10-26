@@ -51,7 +51,10 @@ namespace PiquageTube
         // trou sur le récepteur, paramétré : (psi autour du tube, x le long de l'axe depuis l'axe du piquage, rayon local du récepteur)
         public List<Pt3> TrouParam = new();
         public double TrouXMin, TrouXMax, TrouPsiMin, TrouPsiMax;
-        public double AxeBas;                    // position effective de l'axe du piquage depuis le bas de la descente
+        public double AxeBas;                    // CENTRE DU TROU (centre du piquage) depuis le bas de la descente
+        public double TrouXMid;                  // centre du trou le long de l'axe, depuis le point où l'axe du moignon coupe l'axe de la descente
+        public double AxeCross;                  // position (depuis le bas) du point où l'axe du moignon coupe l'axe de la descente
+        public double RunLength;                 // longueur de la descente
         public List<Pt3> Inter3D = new();        // courbe de sabot (3D, repère récepteur)
         public List<Pt3> BrancheTop3D = new();   // anneau haut du tube ajouté (3D)
         public double R, r;                       // R = rayon du récepteur à l'axe du piquage, r = rayon base ajouté
@@ -61,7 +64,7 @@ namespace PiquageTube
 
     public static class Geometry
     {
-        /// <summary>Position effective (depuis le bas du récepteur) de l'axe du piquage : 0 = milieu.</summary>
+        /// <summary>Position demandée du CENTRE DU TROU depuis le bas de la descente : 0 = au milieu de la longueur.</summary>
         public static double AxePos(PiquageParams p)
         {
             double L = Math.Max(1e-3, p.LRun);
@@ -70,19 +73,43 @@ namespace PiquageTube
 
         public static PiquageResult Compute(PiquageParams p)
         {
+            double want = AxePos(p);                 // où l'utilisateur veut le centre du trou
+            double cross = want;                     // 1re estimation du point de croisement des axes
+            var res = ComputeAt(p, cross);
+            // récepteur conique : le rayon local dépend de la position -> quelques itérations
+            // (cylindre : la géométrie du trou ne dépend pas de la position, aucune itération)
+            if (p.RunConique)
+                for (int k = 0; k < 5 && res.Ok; k++)
+                {
+                    double nc = want - (res.TrouXMin + res.TrouXMax) / 2.0;
+                    if (Math.Abs(nc - cross) < 0.01) break;
+                    cross = nc; res = ComputeAt(p, cross);
+                }
+            if (res.Ok)
+            {
+                res.TrouXMid = (res.TrouXMin + res.TrouXMax) / 2.0;
+                res.AxeCross = want - res.TrouXMid;   // croisement des axes, depuis le bas
+                res.AxeBas = want;                    // centre du trou, depuis le bas
+                res.RunLength = Math.Max(1, p.LRun);
+            }
+            return res;
+        }
+
+        // calcul pour un point de croisement des axes situé à 'axe' mm du bas de la descente
+        private static PiquageResult ComputeAt(PiquageParams p, double axe)
+        {
             double ep = p.Epaisseur;
             double Rbas = (p.DRun - ep) / 2.0;
             double Rhaut = p.RunConique ? (p.DRunHaut - ep) / 2.0 : Rbas;
             double Lrun = Math.Max(1e-3, p.LRun);
             double kr = p.RunConique ? (Rhaut - Rbas) / Lrun : 0.0;   // pente rayon récepteur
-            double axe = AxePos(p);
-            double Rmid = Rbas + kr * axe;                            // rayon du récepteur à l'axe du piquage (= milieu par défaut)
+            double Rmid = Rbas + kr * axe;                            // rayon du récepteur au point de croisement des axes
 
             double rb = (p.DBranche - ep) / 2.0, rt = (p.DTop - ep) / 2.0;
             bool coneBr = p.Conique && Math.Abs(rb - rt) > 1e-4 && p.LDroite > 1e-6;
             double tana = coneBr ? (rb - rt) / p.LDroite : 0.0;
 
-            var res = new PiquageResult { R = Rmid, r = rb, IsCone = coneBr, RunIsCone = p.RunConique, RunKr = kr, AxeBas = axe,
+            var res = new PiquageResult { R = Rmid, r = rb, IsCone = coneBr, RunIsCone = p.RunConique, RunKr = kr, AxeBas = axe, AxeCross = axe,
                 NomDRun = p.DRun, NomDRunHaut = p.DRunHaut, NomDBr = p.DBranche, NomDTop = p.DTop, NomAngle = p.AngleDeg, NomDeport = p.Deport };
             if (Rbas <= 0 || Rhaut <= 0 || Rmid <= 0 || rb <= 0 || rt <= 0) { res.Message = "Diamètres invalides."; return res; }
             if (p.AngleDeg <= 1 || p.AngleDeg >= 179) { res.Message = "Angle hors plage (2°..178°)."; return res; }

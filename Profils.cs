@@ -21,6 +21,9 @@ namespace PiquageTube
         public double Recouvr { get; set; } = 10;
         public double LDroite { get; set; } = 80;
         public int Segments { get; set; } = 360;
+        // position du piquage sur la descente (anciens profils JSON : valeurs par défaut = comportement d'avant)
+        public double TrouDepuisBas { get; set; } = 0;     // axe du piquage depuis le bas de la descente (0 = milieu)
+        public double CoutureDeg { get; set; } = 180;      // couture de la descente, en ° autour du tube depuis l'axe du piquage
         public override string ToString() => Nom;
     }
 

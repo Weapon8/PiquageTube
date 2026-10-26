@@ -14,7 +14,7 @@ namespace PiquageTube
         public double DRun = 200;        // Ø récepteur BAS (ou Ø unique si cylindrique)
         public bool   RunConique = false;
         public double DRunHaut = 200;    // Ø récepteur HAUT
-        public double LRun = 400;        // longueur du récepteur (sur laquelle il se réduit)
+        public double LRun = 400;        // longueur du récepteur / de la descente
         // --- tube ajouté (branche / manchon) ---
         public double DBranche = 100;    // Ø ajouté BASE (côté piqué)
         public bool   Conique = false;   // tube ajouté conique
@@ -25,6 +25,9 @@ namespace PiquageTube
         public double Recouvr = 10;
         public double LDroite = 80;      // longueur (axiale) du tube ajouté
         public int    Segments = 360;
+        // --- position du piquage sur la descente ---
+        public double TrouDepuisBas = 0; // axe du piquage depuis le BAS de la descente (0 = milieu)
+        public double CoutureDeg = 180;  // couture de la descente : angle autour du tube depuis l'axe du piquage (180 = opposée)
     }
 
     public struct Pt2 { public double X, Y; public Pt2(double x, double y){X=x;Y=y;} }
@@ -45,15 +48,26 @@ namespace PiquageTube
         public double DemiAngleDeg, SlantBase, SlantTop;
         public List<Pt2> TrouContour = new();
         public double TrouLargeur, TrouHauteur;
+        // trou sur le récepteur, paramétré : (psi autour du tube, x le long de l'axe depuis l'axe du piquage, rayon local du récepteur)
+        public List<Pt3> TrouParam = new();
+        public double TrouXMin, TrouXMax, TrouPsiMin, TrouPsiMax;
+        public double AxeBas;                    // position effective de l'axe du piquage depuis le bas de la descente
         public List<Pt3> Inter3D = new();        // courbe de sabot (3D, repère récepteur)
         public List<Pt3> BrancheTop3D = new();   // anneau haut du tube ajouté (3D)
-        public double R, r;                       // R = rayon moyen récepteur, r = rayon base ajouté
+        public double R, r;                       // R = rayon du récepteur à l'axe du piquage, r = rayon base ajouté
         // valeurs nominales (Ø extérieurs / angle) pour les cotes 3D
         public double NomDRun, NomDRunHaut, NomDBr, NomDTop, NomAngle, NomDeport;
     }
 
     public static class Geometry
     {
+        /// <summary>Position effective (depuis le bas du récepteur) de l'axe du piquage : 0 = milieu.</summary>
+        public static double AxePos(PiquageParams p)
+        {
+            double L = Math.Max(1e-3, p.LRun);
+            return p.TrouDepuisBas > 0 ? p.TrouDepuisBas : L / 2.0;
+        }
+
         public static PiquageResult Compute(PiquageParams p)
         {
             double ep = p.Epaisseur;
@@ -61,15 +75,16 @@ namespace PiquageTube
             double Rhaut = p.RunConique ? (p.DRunHaut - ep) / 2.0 : Rbas;
             double Lrun = Math.Max(1e-3, p.LRun);
             double kr = p.RunConique ? (Rhaut - Rbas) / Lrun : 0.0;   // pente rayon récepteur
-            double Rmid = (Rbas + Rhaut) / 2.0;
+            double axe = AxePos(p);
+            double Rmid = Rbas + kr * axe;                            // rayon du récepteur à l'axe du piquage (= milieu par défaut)
 
             double rb = (p.DBranche - ep) / 2.0, rt = (p.DTop - ep) / 2.0;
             bool coneBr = p.Conique && Math.Abs(rb - rt) > 1e-4 && p.LDroite > 1e-6;
             double tana = coneBr ? (rb - rt) / p.LDroite : 0.0;
 
-            var res = new PiquageResult { R = Rmid, r = rb, IsCone = coneBr, RunIsCone = p.RunConique, RunKr = kr,
+            var res = new PiquageResult { R = Rmid, r = rb, IsCone = coneBr, RunIsCone = p.RunConique, RunKr = kr, AxeBas = axe,
                 NomDRun = p.DRun, NomDRunHaut = p.DRunHaut, NomDBr = p.DBranche, NomDTop = p.DTop, NomAngle = p.AngleDeg, NomDeport = p.Deport };
-            if (Rbas <= 0 || Rhaut <= 0 || rb <= 0 || rt <= 0) { res.Message = "Diamètres invalides."; return res; }
+            if (Rbas <= 0 || Rhaut <= 0 || Rmid <= 0 || rb <= 0 || rt <= 0) { res.Message = "Diamètres invalides."; return res; }
             if (p.AngleDeg <= 1 || p.AngleDeg >= 179) { res.Message = "Angle hors plage (2°..178°)."; return res; }
             double th = p.AngleDeg * Math.PI / 180.0, sinth = Math.Sin(th), costh = Math.Cos(th), dep = p.Deport;
 
@@ -206,25 +221,31 @@ namespace PiquageTube
         // --- développé du TROU sur le récepteur + remplissage Inter3D ---
         // récepteur cylindrique : déroulé plat (arc = R·ψ ; axe = X)
         // récepteur conique    : déroulé en SECTEUR (slant L = R(x)/sin αr ; angle = ψ·sin αr)
+        // TrouParam garde (ψ, x, R(x)) pour reconstruire le trou à sa vraie place sur la descente.
         private static void BuildTrou(PiquageResult res, double Rmid, double kr, double[] X, double[] Y, double[] Z, int M2)
         {
             double alpha = Math.Atan(Math.Abs(kr)), sa = Math.Sin(alpha);
             var trou = new List<Pt2>();
             double uMin = double.MaxValue, uMax = double.MinValue, vMin = double.MaxValue, vMax = double.MinValue;
+            double xMin = double.MaxValue, xMax = double.MinValue, pMin = double.MaxValue, pMax = double.MinValue;
             for (int i = 0; i <= M2 && i < X.Length; i++)
             {
                 double x = X[i], y = Y[i], z = Z[i];
                 res.Inter3D.Add(new Pt3(x, y, z));
+                if (i >= M2) continue;                    // le point M2 referme la boucle : pas de doublon dans le contour du trou
                 double psi = Math.Atan2(z, y); double Rx = Rmid + kr * x;
                 double u, v;
                 if (sa < 1e-6) { u = Rx * psi; v = x; }                       // cylindre : plat
                 else { double L = Rx / sa; u = L * Math.Cos(psi * sa); v = L * Math.Sin(psi * sa); } // cône : secteur
                 trou.Add(new Pt2(u, v));
+                res.TrouParam.Add(new Pt3(psi, x, Rx));
                 if (u < uMin) uMin = u; if (u > uMax) uMax = u; if (v < vMin) vMin = v; if (v > vMax) vMax = v;
+                if (x < xMin) xMin = x; if (x > xMax) xMax = x; if (psi < pMin) pMin = psi; if (psi > pMax) pMax = psi;
             }
             double cx = (uMin + uMax) / 2, cy = (vMin + vMax) / 2;
             for (int i = 0; i < trou.Count; i++) trou[i] = new Pt2(trou[i].X - cx, trou[i].Y - cy);
             res.TrouContour = trou; res.TrouLargeur = uMax - uMin; res.TrouHauteur = vMax - vMin;
+            res.TrouXMin = xMin; res.TrouXMax = xMax; res.TrouPsiMin = pMin; res.TrouPsiMax = pMax;
         }
 
         // Anneau HAUT du tube ajouté en 3D (repère récepteur), aligné par index sur Inter3D.

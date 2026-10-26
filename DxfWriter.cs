@@ -9,6 +9,7 @@ namespace PiquageTube
     /// Writer DXF AC1015 (R2000) — structure validée en audit ezdxf strict (0 erreur / 0 fix).
     /// Couches TolTem : DECOUPE(7), TRACAGE(6), REPERE(5), INFOS(8), COTATION(4).
     /// Metalix ne lit que les contours blancs extérieurs -> contour de découpe sur DECOUPE (ACI 7).
+    /// LWPOLYLINE : supporte les bulges (arcs) pour le grignotage continu.
     /// </summary>
     public class DxfWriter
     {
@@ -18,6 +19,7 @@ namespace PiquageTube
 
         private string NextHandle() => (_handle++).ToString("X", CultureInfo.InvariantCulture);
         private static string F(double v) => v.ToString("0.####", CultureInfo.InvariantCulture);
+        private static string FB(double v) => v.ToString("0.########", CultureInfo.InvariantCulture);   // bulge : plus de décimales
         private void G(int code, string val) { _sb.Append(code).Append('\n').Append(val).Append('\n'); }
         private void G(int code, double val) => G(code, F(val));
         private void G(int code, int val) => G(code, val.ToString(CultureInfo.InvariantCulture));
@@ -150,7 +152,14 @@ namespace PiquageTube
             {
                 G(0, "LWPOLYLINE"); G(5, NextHandle()); G(330, _msRec); G(100, "AcDbEntity"); G(8, pl.Layer); G(100, "AcDbPolyline");
                 G(90, pl.Points.Count); G(70, pl.Closed ? 1 : 0);
-                foreach (var pt in pl.Points) { G(10, pt.X); G(20, pt.Y); }
+                for (int i = 0; i < pl.Points.Count; i++)
+                {
+                    var pt = pl.Points[i];
+                    G(10, pt.X); G(20, pt.Y);
+                    // bulge (code 42) : arc entre ce sommet et le suivant ; omis si segment droit
+                    if (pl.Bulges != null && i < pl.Bulges.Count && Math.Abs(pl.Bulges[i]) > 1e-9)
+                        G(42, FB(pl.Bulges[i]));
+                }
             }
             else if (e is DxfText tx)
             {
@@ -166,7 +175,8 @@ namespace PiquageTube
     }
 
     public abstract class DxfEntity { public string Layer = "DECOUPE"; }
-    public class DxfPolyline : DxfEntity { public List<Pt2> Points = new(); public bool Closed = true; }
+    /// <summary>Bulges = null : polyligne droite. Sinon un bulge par sommet (0 = segment droit).</summary>
+    public class DxfPolyline : DxfEntity { public List<Pt2> Points = new(); public List<double> Bulges; public bool Closed = true; }
     public class DxfText : DxfEntity { public double X, Y, Height = 4; public string Value = ""; }
     public class DxfLine : DxfEntity { public double X1, Y1, X2, Y2; }
 }

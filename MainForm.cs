@@ -23,7 +23,7 @@ namespace PiquageTube
         static readonly Color CRed    = Color.FromArgb(150, 70, 70);  // suppression
 
         NumericUpDown nDRun, nDRunHaut, nLRun, nDBr, nDTop, nAngle, nDeport, nEp, nRec, nL, nSeg, nPosTrou, nCouture;
-        CheckBox chkRun, chkCone, chkRunCone;
+        CheckBox chkRun, chkCone, chkRunCone, chkSolid;
         ComboBox cbProfil;
         Button btnCalc, btnDxf, btnLoad, btnSave, btnDel;
         Button btnVBr, btnVTr, btnV3D;
@@ -110,6 +110,10 @@ namespace PiquageTube
             chkRunCone = new CheckBox { Text = "Récepteur conique (Ø haut ≠ bas)", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
             chkRunCone.CheckedChanged += (s, e) => { UpdateConeState(); Calc(); };
             panel.Controls.Add(chkRunCone); y += 28;
+            chkSolid = new CheckBox { Text = "Descente pleine (sinon squelette)", Left = 0, Top = y, Width = 300, ForeColor = CText, Checked = false };
+            chkSolid.CheckedChanged += (s, e) => { if (p3D != null) { p3D.Solid = chkSolid.Checked; p3D.Invalidate(); } };
+            tip.SetToolTip(chkSolid, "Vue 3D : descente en volume plein (ombré) ou en fil de fer (squelette).");
+            panel.Controls.Add(chkSolid); y += 28;
             nDRunHaut = Num(150, 5, 5000, 1, 2); lblDRunHaut = Lab("Ø récepteur (haut)", y + 4, CText); lblDRunHaut.Width = 150;
             nDRunHaut.Left = 160; nDRunHaut.Top = y; nDRunHaut.Width = 145; panel.Controls.Add(nDRunHaut); y += 33;
             nDRun = Num(200, 5, 5000, 1, 2); Row("Ø récepteur (bas)", nDRun);
@@ -441,7 +445,7 @@ namespace PiquageTube
         static readonly Color CDim = Color.FromArgb(165, 185, 210);    // cotes encombrement
 
         List<Pt2> _contour, _sabot, _top; bool _closed;
-        public bool Mode3D = false; PiquageResult _r3d;
+        public bool Mode3D = false; public bool Solid = false; PiquageResult _r3d;
 
         // --- rotation / zoom de la vue 3D (souris) ---
         const double Az0 = 0.7, El0 = 0.5;
@@ -558,7 +562,67 @@ namespace PiquageTube
             using var pr = new Pen(CRun3D, 1f);
             using var pi = new Pen(CInter, 2.4f);
             using var pb = new Pen(CTrace, 1.7f);   // orange = branche
-            foreach (var (a, b, k) in segs) g.DrawLine(k == 1 ? pi : k == 2 ? pb : pr, Map(a), Map(b));
+            if (!Solid)
+            {
+                foreach (var (a, b, k) in segs) g.DrawLine(k == 1 ? pi : k == 2 ? pb : pr, Map(a), Map(b));
+            }
+            else
+            {
+                // ---- vue pleine : facettes ombrées triées de l'arrière vers l'avant (algo du peintre) ----
+                var items = new List<(PointF[] pts, double depth, Color c, int kind)>();   // kind 0 = descente, 1 = tube ajouté, 2 = trait
+                double lx = -0.35, ly = 0.55, lz = 0.75, ll = Math.Sqrt(lx * lx + ly * ly + lz * lz); lx /= ll; ly /= ll; lz /= ll;
+                double Near(Pt3 p) => -sa * ce * p.X - ca * ce * p.Y + se * p.Z;            // > = plus près de l'observateur
+                void Quad(Pt3 p0, Pt3 p1, Pt3 p2, Pt3 p3, Color bc, int kind)
+                {
+                    double ux = p1.X - p0.X, uy = p1.Y - p0.Y, uz = p1.Z - p0.Z, wx = p3.X - p0.X, wy = p3.Y - p0.Y, wz = p3.Z - p0.Z;
+                    double nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+                    double nl = Math.Sqrt(nx * nx + ny * ny + nz * nz); if (nl < 1e-12) return;
+                    nx /= nl; ny /= nl; nz /= nl;
+                    double vx1 = nx * ca - ny * sa;
+                    double vy1 = nx * sa * se + ny * ca * se + nz * ce;
+                    double vz1 = -nx * sa * ce - ny * ca * ce + nz * se;
+                    double br = 0.30 + 0.70 * Math.Abs(vx1 * lx + vy1 * ly + vz1 * lz);
+                    var c = Color.FromArgb((int)(bc.R * br), (int)(bc.G * br), (int)(bc.B * br));
+                    items.Add((new[] { Map(p0), Map(p1), Map(p2), Map(p3) }, (Near(p0) + Near(p1) + Near(p2) + Near(p3)) / 4, c, kind));
+                }
+                // descente
+                int NX = 24, NA = 48;
+                for (int ix = 0; ix < NX; ix++)
+                {
+                    double x0 = xmin + (xmax - xmin) * ix / NX, x1 = xmin + (xmax - xmin) * (ix + 1) / NX;
+                    for (int ia = 0; ia < NA; ia++)
+                    {
+                        double a0 = 2 * Math.PI * ia / NA, a1 = 2 * Math.PI * (ia + 1) / NA;
+                        Quad(new Pt3(x0, Rx(x0) * Math.Cos(a0), Rx(x0) * Math.Sin(a0)), new Pt3(x1, Rx(x1) * Math.Cos(a0), Rx(x1) * Math.Sin(a0)),
+                             new Pt3(x1, Rx(x1) * Math.Cos(a1), Rx(x1) * Math.Sin(a1)), new Pt3(x0, Rx(x0) * Math.Cos(a1), Rx(x0) * Math.Sin(a1)),
+                             Color.FromArgb(255, 104, 122, 142), 0);
+                    }
+                }
+                // tube ajouté : facettes entre le sabot et l'anneau haut
+                if (top != null && top.Count > 1)
+                {
+                    int cnt = Math.Min(sad.Count, top.Count), NS = 6;
+                    Pt3 Lp(int i, double t) => new Pt3(sad[i].X + (top[i].X - sad[i].X) * t, sad[i].Y + (top[i].Y - sad[i].Y) * t, sad[i].Z + (top[i].Z - sad[i].Z) * t);
+                    for (int i = 0; i + 1 < cnt; i++)
+                        for (int k = 0; k < NS; k++)
+                        {
+                            double t0 = (double)k / NS, t1 = (double)(k + 1) / NS;
+                            Quad(Lp(i, t0), Lp(i, t1), Lp(i + 1, t1), Lp(i + 1, t0), Color.FromArgb(255, 240, 150, 40), 1);
+                        }
+                }
+                // courbe d'intersection (légèrement avancée pour ne pas être mangée par les facettes voisines)
+                foreach (var (a, b, k) in segs)
+                    if (k == 1) items.Add((new[] { Map(a), Map(b) }, (Near(a) + Near(b)) / 2 + 3.0, CInter, 2));
+                items.Sort((u, v) => u.depth.CompareTo(v.depth));
+                foreach (var it in items)
+                {
+                    if (it.kind == 2) { g.DrawLine(pi, it.pts[0], it.pts[1]); continue; }
+                    using var fb = new SolidBrush(it.c);
+                    g.FillPolygon(fb, it.pts);
+                    using var op = new Pen(it.kind == 1 ? Color.FromArgb(150, 70, 20) : it.c, 1f);
+                    g.DrawPolygon(op, it.pts);
+                }
+            }
 
             // --- cotes 3D (Ø récepteur, Ø tube ajouté, angle) ---
             using var pcote = new Pen(CDim, 1.3f);

@@ -4,15 +4,16 @@ using System.Collections.Generic;
 namespace PiquageTube
 {
     /// <summary>
-    /// Polyligne dense -> chaîne d'arcs TANGENTS (bulges DXF) pour le grignotage continu
+    /// Polyligne dense -> chaîne d'arcs LONGS (bulges DXF) pour le grignotage continu
     /// (AutoPunch / Metalix) : un arc = un passage de poinçon continu au lieu d'un coup par mini-segment.
     /// Les coins francs (> CornerDeg) coupent la polyligne en sections lisses, ajustées séparément.
     /// Même algo que DeveloppeTube (validé : écart ~0,04 mm avec la courbe d'origine).
     /// </summary>
     public static class ArcFit
     {
-        public const double DefaultTol = 0.03;                      // mm, écart max aux points d'origine
-        const double MaxHalfSweep = 80.0 * Math.PI / 180.0;         // |alpha| max par arc (balayage < 160°)
+        public const double DefaultTol = 0.08;                      // mm, écart max aux points d'origine
+        const double MaxBulge = 0.8391;                             // tan(40°) : balayage max 160° par arc
+        const double MaxKinkDeg = 4.0;                              // coude max entre 2 arcs consécutifs
         const double CornerDeg = 10.0;                              // coin franc au-delà de ce changement de direction
 
         /// <summary>Convertit une polyligne dense en sommets + bulges (bulge i = segment i -> i+1).</summary>
@@ -78,76 +79,95 @@ namespace PiquageTube
             }
         }
 
-        // ---- ajustement d'une section lisse : chaîne d'arcs tangents, greedy ----
+        // ---- ajustement d'une section lisse : arcs "libres" (extrémités sur la courbe, flèche optimisée) ----
+        // peu d'arcs, longs ; coude max MaxKinkDeg entre deux arcs consécutifs
         static List<(double X, double Y, double B)> FitSection(List<Pt2> pts, double tol)
         {
             var res = new List<(double X, double Y, double B)>();
             int n = pts.Count;
             if (n == 0) return res;
             if (n == 1) { res.Add((pts[0].X, pts[0].Y, 0)); return res; }
-            if (n == 2) { res.Add((pts[0].X, pts[0].Y, 0)); res.Add((pts[1].X, pts[1].Y, 0)); return res; }
 
-            // tangente de départ = direction du premier segment
-            double tx = pts[1].X - pts[0].X, ty = pts[1].Y - pts[0].Y;
-            double l0 = Math.Sqrt(tx * tx + ty * ty);
-            if (l0 > 1e-12) { tx /= l0; ty /= l0; } else { tx = 1; ty = 0; }
-
+            double maxKink = MaxKinkDeg * Math.PI / 180.0;
+            double prevEnd = double.NaN;
             int i = 0;
             while (i < n - 1)
             {
                 double x0 = pts[i].X, y0 = pts[i].Y;
-                int best = -1; double bestAlpha = 0;
+                int bestJ = -1; double bestB = 0, bestEnd = 0;
 
                 for (int j = i + 1; j < n; j++)
                 {
                     double dx = pts[j].X - x0, dy = pts[j].Y - y0;
                     double c = Math.Sqrt(dx * dx + dy * dy);
-                    if (c < 1e-9) { if (best < 0) continue; else break; }
-                    double alpha = Math.Atan2(tx * dy - ty * dx, tx * dx + ty * dy);
-                    if (Math.Abs(alpha) > MaxHalfSweep) break;
-
-                    bool ok = true;
-                    if (Math.Abs(alpha) < 1e-7)
-                    {
-                        for (int k = i + 1; k < j && ok; k++)
-                            if (Math.Abs(tx * (pts[k].Y - y0) - ty * (pts[k].X - x0)) > tol) ok = false;
-                    }
-                    else
-                    {
-                        double r = c / (2 * Math.Sin(alpha));              // signé : > 0 = arc vers la gauche
-                        double cx = x0 - ty * r, cy = y0 + tx * r;
-                        double ar = Math.Abs(r);
-                        for (int k = i + 1; k < j && ok; k++)
-                        {
-                            double ex = pts[k].X - cx, ey = pts[k].Y - cy;
-                            if (Math.Abs(Math.Sqrt(ex * ex + ey * ey) - ar) > tol) ok = false;
-                        }
-                    }
-                    if (!ok) break;
-                    best = j; bestAlpha = alpha;
+                    if (c < 1e-9) { if (bestJ < 0) continue; else break; }
+                    double b = 0, dev = 0;
+                    if (j > i + 1) b = BestBulge(pts, i, j, out dev);
+                    if (dev > tol) break;
+                    double al = 2 * Math.Atan(b), ch = Math.Atan2(dy, dx);
+                    if (!double.IsNaN(prevEnd) && AngDiff(ch - al, prevEnd) > maxKink) continue;
+                    bestJ = j; bestB = b; bestEnd = ch + al;
                 }
 
-                if (best < 0)
+                if (bestJ < 0)
                 {
-                    // aucun arc possible (angle vif) : segment droit, la tangente repart du segment
-                    best = i + 1;
-                    while (best < n - 1 && Math.Abs(pts[best].X - x0) + Math.Abs(pts[best].Y - y0) < 1e-9) best++;
-                    double dx = pts[best].X - x0, dy = pts[best].Y - y0;
-                    double c = Math.Sqrt(dx * dx + dy * dy);
-                    res.Add((x0, y0, 0));
-                    if (c > 1e-9) { tx = dx / c; ty = dy / c; }
+                    bestJ = i + 1;
+                    while (bestJ < n - 1 && Math.Abs(pts[bestJ].X - x0) + Math.Abs(pts[bestJ].Y - y0) < 1e-9) bestJ++;
+                    bestB = 0;
+                    bestEnd = Math.Atan2(pts[bestJ].Y - y0, pts[bestJ].X - x0);
                 }
-                else
-                {
-                    res.Add((x0, y0, Math.Tan(bestAlpha / 2)));
-                    double ca = Math.Cos(2 * bestAlpha), sa = Math.Sin(2 * bestAlpha);
-                    double ntx = tx * ca - ty * sa, nty = tx * sa + ty * ca;
-                    tx = ntx; ty = nty;
-                }
-                i = best;
+                res.Add((x0, y0, bestB));
+                prevEnd = bestEnd;
+                i = bestJ;
             }
             res.Add((pts[n - 1].X, pts[n - 1].Y, 0));
             return res;
+        }
+
+        static double AngDiff(double a, double b)
+        {
+            double d = (a - b) % (2 * Math.PI);
+            if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
+            return Math.Abs(d);
+        }
+
+        static double BestBulge(List<Pt2> p, int i, int j, out double dev)
+        {
+            double lo = -MaxBulge, hi = MaxBulge;
+            for (int it = 0; it < 40; it++)
+            {
+                double m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+                if (Dev(p, i, j, m1) < Dev(p, i, j, m2)) hi = m2; else lo = m1;
+            }
+            double b = (lo + hi) / 2;
+            dev = Dev(p, i, j, b);
+            return b;
+        }
+
+        static double Dev(List<Pt2> p, int i, int j, double b)
+        {
+            double x0 = p[i].X, y0 = p[i].Y, dx = p[j].X - x0, dy = p[j].Y - y0;
+            double c = Math.Sqrt(dx * dx + dy * dy), m = 0;
+            double sweep = 4 * Math.Atan(b);
+            if (Math.Abs(sweep) < 1e-9)
+            {
+                for (int k = i + 1; k < j; k++)
+                {
+                    double d = Math.Abs(dx * (p[k].Y - y0) - dy * (p[k].X - x0)) / c;
+                    if (d > m) m = d;
+                }
+                return m;
+            }
+            double r = c / (2 * Math.Sin(sweep / 2));
+            double t = Math.Atan2(dy, dx) - sweep / 2;
+            double cx = x0 - r * Math.Sin(t), cy = y0 + r * Math.Cos(t), ar = Math.Abs(r);
+            for (int k = i + 1; k < j; k++)
+            {
+                double ex = p[k].X - cx, ey = p[k].Y - cy;
+                double d = Math.Abs(Math.Sqrt(ex * ex + ey * ey) - ar);
+                if (d > m) m = d;
+            }
+            return m;
         }
 
         static double Dist(Pt2 a, Pt2 b)
